@@ -1,0 +1,24 @@
+v1.0
+Release Date: 2025-08-02
+
+Features:
+- Mobile-first Tinder-style event browsing
+- Event registration with duplicate prevention
+- Survey questions configuration
+- Admin panel with full CRUD operations
+- Image upload support
+- Replay URL configuration
+- Responsive glassmorphism design
+
+Tech Stack:
+- Frontend: React 18 + TypeScript + Tailwind CSS
+- Backend: Express.js + SQLite
+- Deployment: serve (SPA support)
+
+Known Issues:
+- None
+
+Next Version Plans:
+- Performance optimization
+- Security enhancements
+- Feature extensions (search, tags, export)
