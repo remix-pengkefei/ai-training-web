@@ -1,4 +1,4 @@
-# AI Training Web - v1.0 版本记录（数据库版）
+# AI Training Web - 版本记录
 
 ## 项目概述
 这是一个为内部AI培训活动设计的移动端Web应用，采用React + TypeScript + Express.js + SQLite技术栈，提供活动展示、详情查看和在线报名功能。
@@ -427,6 +427,168 @@ python3 -m http.server 8080 --directory build
 如有问题或建议，请通过内部沟通渠道联系开发团队。
 
 ---
+
+## v2.0 - 线上部署版 (2025-08-02)
+
+### 部署概述
+成功将项目部署到阿里云ECS服务器，实现了公网访问。
+
+- **服务器**: 阿里云ECS（Ubuntu 22.04）
+- **公网IP**: 101.200.29.196
+- **访问地址**:
+  - 前端: http://101.200.29.196/
+  - 管理后台: http://101.200.29.196/admin
+
+### 部署过程中的关键问题与解决
+
+#### 1. GitHub访问问题
+**问题**: 中国大陆服务器无法直接访问GitHub
+```bash
+# 尝试的解决方案
+1. 各种Git代理配置 - 失败
+2. GitHub镜像站 - 失败
+3. Cloudflare WARP - 部分成功
+```
+
+**最终解决方案**:
+```bash
+# 安装Cloudflare WARP
+sudo apt install cloudflare-warp
+warp-cli register
+warp-cli mode proxy
+warp-cli connect
+
+# 通过proxychains4下载
+proxychains4 wget --no-check-certificate https://codeload.github.com/xxx/zip/refs/heads/master -O web.zip
+```
+
+#### 2. 阿里云安全组配置
+**问题**: 外网无法访问，显示ERR_CONNECTION_RESET
+**原因**: 阿里云默认不开放80端口
+**解决**: 在阿里云控制台添加安全组规则
+- 端口：80/80
+- 协议：TCP
+- 授权对象：0.0.0.0/0
+
+#### 3. 管理后台路由问题
+**问题**: /admin路径访问显示空白
+**解决**: 在package.json中添加homepage配置
+```json
+{
+  "homepage": "/admin",
+  ...
+}
+```
+
+#### 4. SPA路由支持
+**问题**: Python http.server不支持SPA fallback
+**解决**: 使用serve替代
+```bash
+serve -s build -l 8080
+```
+
+### 部署架构
+
+```
+Internet
+    ↓
+阿里云ECS (101.200.29.196)
+    ├── Nginx (80端口)
+    │   ├── / → 前端静态文件
+    │   ├── /admin → 管理后台静态文件
+    │   └── /api → 反向代理到3001
+    ├── PM2
+    │   └── Node.js后端 (3001端口)
+    └── SQLite数据库
+```
+
+### Nginx配置
+```nginx
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        root /var/www/ai-training/ai-training-web/build;
+        try_files $uri /index.html;
+    }
+
+    location /admin {
+        alias /var/www/ai-training/ai-training-admin/build;
+        try_files $uri /admin/index.html;
+    }
+
+    location /api {
+        proxy_pass http://localhost:3001;
+    }
+
+    location /uploads {
+        alias /var/www/ai-training/ai-training-web/backend/uploads;
+    }
+}
+```
+
+### 自动化部署准备
+
+已准备GitHub Actions配置文件，后续可实现：
+- 代码推送自动部署
+- 版本回滚
+- 部署日志记录
+
+### 性能优化建议
+
+1. **当前状态**:
+   - 前端构建大小: ~80KB（优秀）
+   - 无CDN加速
+   - 无HTTPS
+
+2. **后续优化**:
+   - 配置Let's Encrypt免费SSL证书
+   - 使用阿里云CDN加速静态资源
+   - 升级到MySQL数据库
+   - 添加Redis缓存层
+
+### 运维相关
+
+#### 常用命令
+```bash
+# 查看服务状态
+pm2 status
+sudo systemctl status nginx
+
+# 查看日志
+pm2 logs ai-training-backend
+sudo tail -f /var/log/nginx/error.log
+
+# 重启服务
+pm2 restart ai-training-backend
+sudo systemctl restart nginx
+```
+
+#### 备份策略
+```bash
+# 数据库备份
+cp /var/www/ai-training/ai-training-web/backend/ai_training.db ~/backups/ai_training_$(date +%Y%m%d).db
+
+# 代码备份（已推送GitHub）
+```
+
+### 已知问题
+
+1. **模拟数据问题**: 前端可能包含硬编码的模拟数据
+2. **HTTP安全警告**: 浏览器提示"不安全"
+3. **移动端适配**: 部分UI细节需要优化
+
+### 下一步计划
+
+1. [ ] 配置HTTPS证书
+2. [ ] 清理前端模拟数据
+3. [ ] 实施自动化部署
+4. [ ] 添加监控告警
+5. [ ] 数据库升级到MySQL
+6. [ ] 接入企业微信/钉钉
+
+---
 *最后更新: 2025-08-02*
-*版本: v1.0 - 完整功能版*
-*说明: 包含完整的活动管理、报名、调研功能，支持多用户使用*
+*版本: v2.0 - 线上部署版*
+*说明: 完成线上部署，项目已可公网访问，为后续迭代奠定基础*
