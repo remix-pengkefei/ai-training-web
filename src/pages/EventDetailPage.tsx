@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { Event } from '../types';
-import { getEventById, registerForEvent } from '../services/api';
+import { getEventById, registerForEvent, submitSurveyResponse, getSurveyStats } from '../services/api';
 import RegistrationModal from '../components/RegistrationModal';
 
 
@@ -10,20 +10,17 @@ const mockSurveyQuestions = [
   {
     id: 1,
     question: '您是如何了解到本次活动的？',
-    options: ['公司内部通知', '同事推荐', '社交媒体', '其他'],
-    stats: [45, 30, 20, 5] // 百分比
+    options: ['公司内部通知', '同事推荐', '社交媒体', '其他']
   },
   {
     id: 2,
     question: '您对AI技术的了解程度是？',
-    options: ['完全不了解', '了解一些基础', '比较熟悉', '非常精通'],
-    stats: [10, 40, 35, 15]
+    options: ['完全不了解', '了解一些基础', '比较熟悉', '非常精通']
   },
   {
     id: 3,
     question: '您最期待学习哪方面的内容？',
-    options: ['AI基础理论', '实际应用案例', '编程实践', '行业趋势'],
-    stats: [20, 35, 30, 15]
+    options: ['AI基础理论', '实际应用案例', '编程实践', '行业趋势']
   }
 ];
 
@@ -43,11 +40,13 @@ const EventDetailPage: React.FC = () => {
   const [surveyCompleted, setSurveyCompleted] = useState(false);
   const [hasCompletedSurvey, setHasCompletedSurvey] = useState(false);
   const [savedAnswers, setSavedAnswers] = useState<number[]>([]);
+  const [surveyStats, setSurveyStats] = useState<{ [key: number]: number[] }>({});
   
 
   useEffect(() => {
     if (id) {
       loadEvent();
+      loadSurveyStats();
       // 检查是否已经完成过调研
       const surveyKey = `survey_${id}_answers`;
       const saved = localStorage.getItem(surveyKey);
@@ -69,6 +68,20 @@ const EventDetailPage: React.FC = () => {
       console.error('Failed to load event:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadSurveyStats = async () => {
+    try {
+      if (!id) return;
+      const { stats } = await getSurveyStats(id);
+      const statsMap: { [key: number]: number[] } = {};
+      stats.forEach(stat => {
+        statsMap[stat.questionIndex] = stat.stats;
+      });
+      setSurveyStats(statsMap);
+    } catch (error) {
+      console.error('Failed to load survey stats:', error);
     }
   };
 
@@ -98,19 +111,30 @@ const EventDetailPage: React.FC = () => {
     }
   };
 
-  const handleSurveyAnswer = (optionIndex: number) => {
+  const handleSurveyAnswer = async (optionIndex: number) => {
     const newAnswers = [...surveyAnswers, optionIndex];
     setSurveyAnswers(newAnswers);
     setShowStats(true);
     
     // 1.5秒后切换到下一题
-    setTimeout(() => {
+    setTimeout(async () => {
       setShowStats(false);
       if (currentQuestionIndex < surveyQuestions.length - 1) {
         setCurrentQuestionIndex(currentQuestionIndex + 1);
       } else {
-        // 完成所有问题，保存到localStorage
+        // 完成所有问题，保存到localStorage和数据库
         if (id) {
+          // 生成用户ID（使用localStorage保存，保证同一用户的唯一性）
+          let userId = localStorage.getItem('userId');
+          if (!userId) {
+            userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            localStorage.setItem('userId', userId);
+          }
+          
+          // 提交到后端
+          await submitSurveyResponse(id, newAnswers, userId);
+          
+          // 保存到localStorage
           const surveyKey = `survey_${id}_answers`;
           localStorage.setItem(surveyKey, JSON.stringify(newAnswers));
           setSavedAnswers(newAnswers);
@@ -273,7 +297,7 @@ const EventDetailPage: React.FC = () => {
                           您的选择：{question.options[savedAnswers[qIndex]]}
                         </span>
                         <span className="text-purple-300 text-sm">
-                          {question.stats ? question.stats[savedAnswers[qIndex]] : Math.floor(Math.random() * 50 + 10)}% 的人选择了此项
+                          {surveyStats[qIndex] ? surveyStats[qIndex][savedAnswers[qIndex]] : 0}% 的人选择了此项
                         </span>
                       </div>
                     </div>
@@ -324,7 +348,7 @@ const EventDetailPage: React.FC = () => {
                         <span className="text-white">{option}</span>
                         {showStats && (
                           <span className="text-sm text-purple-300 font-medium">
-                            {currentQuestion.stats ? currentQuestion.stats[index] : Math.floor(Math.random() * 50 + 10)}%
+                            {surveyStats[currentQuestionIndex] ? surveyStats[currentQuestionIndex][index] : 0}%
                           </span>
                         )}
                       </div>
@@ -332,7 +356,7 @@ const EventDetailPage: React.FC = () => {
                         <div className="mt-2 w-full bg-white/20 rounded-full h-2">
                           <div
                             className="bg-gradient-to-r from-purple-600 to-blue-600 h-2 rounded-full transition-all duration-500"
-                            style={{ width: `${currentQuestion.stats ? currentQuestion.stats[index] : Math.floor(Math.random() * 50 + 10)}%` }}
+                            style={{ width: `${surveyStats[currentQuestionIndex] ? surveyStats[currentQuestionIndex][index] : 0}%` }}
                           />
                         </div>
                       )}

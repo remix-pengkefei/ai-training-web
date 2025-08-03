@@ -92,6 +92,20 @@ db.serialize(() => {
     )
   `);
 
+  // Create survey_responses table for storing survey answers
+  db.run(`
+    CREATE TABLE IF NOT EXISTS survey_responses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      eventId TEXT NOT NULL,
+      questionIndex INTEGER NOT NULL,
+      answerIndex INTEGER NOT NULL,
+      userId TEXT NOT NULL,
+      answeredAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (eventId) REFERENCES events(id),
+      UNIQUE(eventId, questionIndex, userId)
+    )
+  `);
+
   // 不再自动插入模拟数据
   // db.get("SELECT COUNT(*) as count FROM events", (err, row) => {
   //   if (err) {
@@ -408,6 +422,97 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
   
   const imageUrl = `/uploads/${req.file.filename}`;
   res.json({ url: imageUrl });
+});
+
+// Submit survey response
+app.post('/api/events/:id/survey', (req, res) => {
+  const { id } = req.params;
+  const { answers, userId } = req.body;
+  
+  if (!answers || !userId) {
+    return res.status(400).json({ error: 'Answers and userId are required' });
+  }
+  
+  db.serialize(() => {
+    db.run("BEGIN TRANSACTION");
+    
+    // Insert each answer
+    let errorOccurred = false;
+    answers.forEach((answerIndex, questionIndex) => {
+      if (!errorOccurred) {
+        db.run(
+          `INSERT OR REPLACE INTO survey_responses (eventId, questionIndex, answerIndex, userId) 
+           VALUES (?, ?, ?, ?)`,
+          [id, questionIndex, answerIndex, userId],
+          (err) => {
+            if (err) {
+              errorOccurred = true;
+              db.run("ROLLBACK");
+              res.status(500).json({ error: err.message });
+            }
+          }
+        );
+      }
+    });
+    
+    if (!errorOccurred) {
+      db.run("COMMIT");
+      res.json({ success: true });
+    }
+  });
+});
+
+// Get survey statistics
+app.get('/api/events/:id/survey-stats', (req, res) => {
+  const { id } = req.params;
+  
+  // First get the event to know how many questions and options
+  db.get("SELECT surveyQuestions FROM events WHERE id = ?", [id], (err, row) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    if (!row || !row.surveyQuestions) {
+      res.json({ stats: [] });
+      return;
+    }
+    
+    const questions = JSON.parse(row.surveyQuestions);
+    
+    // Get all responses for this event
+    db.all(
+      "SELECT questionIndex, answerIndex, COUNT(*) as count FROM survey_responses WHERE eventId = ? GROUP BY questionIndex, answerIndex",
+      [id],
+      (err, rows) => {
+        if (err) {
+          res.status(500).json({ error: err.message });
+          return;
+        }
+        
+        // Calculate statistics for each question
+        const stats = questions.map((question, qIndex) => {
+          const questionResponses = rows.filter(r => r.questionIndex === qIndex);
+          const totalResponses = questionResponses.reduce((sum, r) => sum + r.count, 0);
+          
+          // Calculate percentage for each option
+          const optionStats = question.options.map((option, oIndex) => {
+            const responseCount = questionResponses.find(r => r.answerIndex === oIndex)?.count || 0;
+            const percentage = totalResponses > 0 ? Math.round((responseCount / totalResponses) * 100) : 0;
+            return percentage;
+          });
+          
+          return {
+            questionIndex: qIndex,
+            totalResponses,
+            stats: optionStats
+          };
+        });
+        
+        res.json({ stats });
+      }
+    );
+  });
 });
 
 // Delete event

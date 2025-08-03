@@ -70,3 +70,47 @@ export const registerForEvent = async (
     };
   }
 };
+
+// 提交调研答案
+export const submitSurveyResponse = async (
+  eventId: string,
+  answers: number[],
+  userId: string
+): Promise<{ success: boolean }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/events/${eventId}/survey`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ answers, userId }),
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to submit survey response');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to submit survey response:', error);
+    return { success: false };
+  }
+};
+
+// 获取调研统计数据
+export const getSurveyStats = async (
+  eventId: string
+): Promise<{ stats: Array<{ questionIndex: number; totalResponses: number; stats: number[] }> }> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/events/${eventId}/survey-stats`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get survey stats');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to get survey stats:', error);
+    return { stats: [] };
+  }
+};
